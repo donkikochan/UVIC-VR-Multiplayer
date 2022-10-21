@@ -11,12 +11,14 @@
 
 namespace Photon.Pun
 {
-    using System;
-    using System.Collections.Generic;
     using ExitGames.Client.Photon;
     using Photon.Realtime;
+    using System.Collections.Generic;
     using UnityEngine;
+
+#if UNITY_5_5_OR_NEWER
     using UnityEngine.Profiling;
+#endif
 
 
     /// <summary>
@@ -48,7 +50,7 @@ namespace Photon.Pun
 
         /// <summary>Limits the number of datagrams that are created in each LateUpdate.</summary>
         /// <remarks>Helps spreading out sending of messages minimally.</remarks>
-        public static int MaxDatagrams = 10;
+        public static int MaxDatagrams = 3;
 
         /// <summary>Signals that outgoing messages should be sent in the next LateUpdate call.</summary>
         /// <remarks>Up to MaxDatagrams are created to send queued messages.</remarks>
@@ -162,6 +164,7 @@ namespace Photon.Pun
             }
             #endif
 
+
             int currentMsSinceStart = (int)(Time.realtimeSinceStartup * 1000); // avoiding Environment.TickCount, which could be negative on long-running platforms
             if (PhotonNetwork.IsMessageQueueRunning && currentMsSinceStart > this.nextSendTickCountOnSerialize)
             {
@@ -183,10 +186,6 @@ namespace Photon.Pun
                     doSend = PhotonNetwork.NetworkingClient.LoadBalancingPeer.SendOutgoingCommands();
                     sendCounter++;
                     Profiler.EndSample();
-                }
-                if (sendCounter >= MaxDatagrams)
-                {
-                    SendAsap = true;
                 }
 
                 this.nextSendTickCount = currentMsSinceStart + this.UpdateInterval;
@@ -215,31 +214,12 @@ namespace Photon.Pun
 
 
             bool doDispatch = true;
-            Exception ex = null;
-            int exceptionCount = 0;
             while (PhotonNetwork.IsMessageQueueRunning && doDispatch)
             {
                 // DispatchIncomingCommands() returns true of it dispatched any command (event, response or state change)
                 Profiler.BeginSample("DispatchIncomingCommands");
-                try
-                {
-                    doDispatch = PhotonNetwork.NetworkingClient.LoadBalancingPeer.DispatchIncomingCommands();
-                }
-                catch (Exception e)
-                {
-                    exceptionCount++;
-                    if (ex == null)
-                    {
-                        ex = e;
-                    }
-                }
-
+                doDispatch = PhotonNetwork.NetworkingClient.LoadBalancingPeer.DispatchIncomingCommands();
                 Profiler.EndSample();
-            }
-
-            if (ex != null)
-            {
-                throw new AggregateException("Caught " + exceptionCount + " exception(s) in methods called by DispatchIncomingCommands(). Rethrowing first only (see above).", ex);
             }
         }
 
@@ -262,11 +242,7 @@ namespace Photon.Pun
             var views = PhotonNetwork.PhotonViewCollection;
             foreach (var view in views)
             {
-                if (view.IsRoomView)
-                {
-                    view.OwnerActorNr= newMasterClient.ActorNumber;
-                    view.ControllerActorNr = newMasterClient.ActorNumber;
-                }
+                view.RebuildControllerCache();
             }
         }
 
@@ -331,7 +307,7 @@ namespace Photon.Pun
             // what may happen is that the Master Client disconnects locally and uses ReconnectAndRejoin before anyone (including the server) notices.
 
             bool amMasterClient = PhotonNetwork.IsMasterClient;
-
+            
             var views = PhotonNetwork.PhotonViewCollection;
             if (amMasterClient)
             {
